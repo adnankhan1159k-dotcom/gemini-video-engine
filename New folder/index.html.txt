@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Gemini Video Engine</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root {
+            --primary-bg: #131314;
+            --container-bg: #1e1f20;
+            --text-color: #e3e3e3;
+            --accent-gradient: linear-gradient(45deg, #4285f4, #9b72cb, #d96570);
+            --input-bg: #2b2c2e;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex; flex-direction: column; align-items: center;
+            background-color: var(--primary-bg); color: var(--text-color);
+            margin: 0; padding: 20px; min-height: 100vh;
+        }
+        .container {
+            background: var(--container-bg); padding: 25px; border-radius: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3); text-align: center;
+            width: 100%; max-width: 500px; box-sizing: border-box;
+        }
+        h1 {
+            font-size: 1.8rem; margin-bottom: 20px;
+            background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+        }
+        .field { margin-bottom: 20px; text-align: left; }
+        label { display: block; font-size: 0.9rem; margin-bottom: 8px; color: #aaa; }
+        input[type="file"], textarea {
+            width: 100%; padding: 12px; background: var(--input-bg);
+            border: 1px solid #444; border-radius: 12px; color: white; box-sizing: border-box;
+        }
+        button {
+            background: var(--accent-gradient); color: white; border: none;
+            padding: 14px; border-radius: 12px; cursor: pointer;
+            font-size: 1.1rem; width: 100%; font-weight: 600;
+        }
+        button:disabled { opacity: 0.5; }
+        #subtitleOverlay {
+            position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.8); color: white; padding: 10px 20px;
+            border-radius: 10px; display: none; z-index: 1000;
+        }
+        video { margin-top: 25px; width: 100%; display: none; border-radius: 15px; }
+        canvas { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Gemini Video Engine</h1>
+        <div class="field">
+            <label>1. Upload Image</label>
+            <input type="file" id="imageInput" accept="image/*">
+        </div>
+        <div class="field">
+            <label>2. Describe your vision...</label>
+            <textarea id="promptInput" placeholder="e.g., Zoom in slowly and make it black and white..."></textarea>
+        </div>
+        <button id="convertBtn">Generate Video</button>
+        <div id="status" style="margin-top:15px; color:#4285f4;"></div>
+        <video id="outputVideo" controls></video>
+        <canvas id="canvas"></canvas>
+    </div>
+    <div id="subtitleOverlay"></div>
+
+    <script>
+        const imageInput = document.getElementById('imageInput');
+        const promptInput = document.getElementById('promptInput');
+        const convertBtn = document.getElementById('convertBtn');
+        const status = document.getElementById('status');
+        const video = document.getElementById('outputVideo');
+        const canvas = document.getElementById('canvas');
+        const subtitles = document.getElementById('subtitleOverlay');
+        const ctx = canvas.getContext('2d');
+
+        function speak(text) {
+            subtitles.innerText = text;
+            subtitles.style.display = 'block';
+            const ut = new SpeechSynthesisUtterance(text);
+            ut.onend = () => subtitles.style.display = 'none';
+            window.speechSynthesis.speak(ut);
+        }
+
+        convertBtn.addEventListener('click', async () => {
+            if (!imageInput.files[0]) return alert('Upload an image!');
+            const prompt = promptInput.value.toLowerCase();
+            
+            status.innerText = "Analyzing prompt...";
+            convertBtn.disabled = true;
+            speak("I'm processing your request: " + prompt);
+
+            const img = new Image();
+            img.src = URL.createObjectURL(imageInput.files[0]);
+            img.onload = () => {
+                canvas.width = img.width; canvas.height = img.height;
+                const stream = canvas.captureStream(30);
+                const recorder = new MediaRecorder(stream, { mimeType: 'video/webm' });
+                const chunks = [];
+                recorder.ondataavailable = e => chunks.push(e.data);
+                recorder.onstop = () => {
+                    video.src = URL.createObjectURL(new Blob(chunks, { type: 'video/webm' }));
+                    video.style.display = 'block';
+                    convertBtn.disabled = false;
+                    speak("Done! Your video is ready.");
+                };
+                recorder.start();
+                
+                let start = Date.now();
+                const draw = () => {
+                    const elapsed = Date.now() - start;
+                    const progress = elapsed / 5000;
+                    ctx.clearRect(0,0,canvas.width,canvas.height);
+                    ctx.save();
+                    if(prompt.includes('gray')) ctx.filter = 'grayscale(100%)';
+                    if(prompt.includes('zoom')) {
+                        let s = 1 + (progress * 0.5);
+                        ctx.translate(canvas.width/2, canvas.height/2);
+                        ctx.scale(s, s);
+                        ctx.translate(-canvas.width/2, -canvas.height/2);
+                    }
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    ctx.restore();
+                    if(elapsed < 5000) requestAnimationFrame(draw); else recorder.stop();
+                };
+                draw();
+            };
+        });
+    </script>
+</body>
+</html>
